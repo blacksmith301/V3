@@ -10,6 +10,9 @@ export const HapticVideoPlayer: React.FC = () => {
   const containerRef = useRef<HTMLDivElement>(null);
   const controlsTimeoutRef = useRef<ReturnType<typeof setTimeout>>(null);
   
+  // Use a ref to track active cue synchronously to avoid closure/batching issues with RAF
+  const activeCueRef = useRef<string | null>(null);
+
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -82,11 +85,14 @@ export const HapticVideoPlayer: React.FC = () => {
     const currentCue = HAPTIC_CUES.find(cue => t >= cue.startTime && t < cue.endTime);
 
     if (currentCue) {
-      if (activeCue !== currentCue.id) {
+      // Check against ref for immediate update within the loop
+      if (activeCueRef.current !== currentCue.id) {
+        activeCueRef.current = currentCue.id;
         setActiveCue(currentCue.id);
+        
         if (navigator.vibrate) {
           if (currentCue.vibrationPattern) {
-            // Use custom pattern if defined
+            // Use custom pattern if defined (Fire and forget for patterns)
             navigator.vibrate(currentCue.vibrationPattern);
           } else {
             // Default to continuous vibration for the remainder of the cue
@@ -96,7 +102,8 @@ export const HapticVideoPlayer: React.FC = () => {
         }
       }
     } else {
-      if (activeCue) {
+      if (activeCueRef.current) {
+        activeCueRef.current = null;
         setActiveCue(null);
         if (navigator.vibrate) navigator.vibrate(0);
       }
@@ -105,7 +112,7 @@ export const HapticVideoPlayer: React.FC = () => {
     if (isPlaying && t < duration) {
       syncLoopRef.current = requestAnimationFrame(handleSync);
     }
-  }, [activeCue, isPlaying, duration]);
+  }, [isPlaying, duration]);
 
   useEffect(() => {
     if (isPlaying) {
@@ -114,6 +121,7 @@ export const HapticVideoPlayer: React.FC = () => {
       if (syncLoopRef.current) cancelAnimationFrame(syncLoopRef.current);
       if (navigator.vibrate) navigator.vibrate(0);
       setActiveCue(null);
+      activeCueRef.current = null;
     }
     return () => {
       if (syncLoopRef.current) cancelAnimationFrame(syncLoopRef.current);
@@ -138,6 +146,7 @@ export const HapticVideoPlayer: React.FC = () => {
     }
     if (navigator.vibrate) navigator.vibrate(0);
     setActiveCue(null);
+    activeCueRef.current = null;
     resetControlsTimeout();
   };
 
@@ -153,6 +162,8 @@ export const HapticVideoPlayer: React.FC = () => {
       videoRef.current.currentTime = 0;
       if (!isPlaying) setCurrentTime(0);
     }
+    setActiveCue(null);
+    activeCueRef.current = null;
   };
 
   const handleLoadedMetadata = (e: React.SyntheticEvent<HTMLVideoElement>) => {

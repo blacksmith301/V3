@@ -4,9 +4,10 @@ export const HAPTIC_CUES: HapticCue[] = [
   {
     id: 'cue-burst-1',
     startTime: 6.8,
-    endTime: 7.0,
+    endTime: 7.2, // Widened window to prevent cutoff
     label: 'Intro Burst',
-    description: 'Initial sync pulse'
+    description: 'Initial sync pulse',
+    vibrationPattern: [200] // Explicit strong pulse
   },
   {
     id: 'cue-1',
@@ -41,8 +42,9 @@ export const HAPTIC_CUES: HapticCue[] = [
   {
     id: 'cue-burst-2',
     startTime: 38.0,
-    endTime: 38.2,
+    endTime: 38.4, // Widened window to prevent cutoff
     label: 'Outro Burst',
-    description: 'Final sync pulse'
+    description: 'Final sync pulse',
+    vibrationPattern: [200] // Explicit strong pulse
   }
 ];
