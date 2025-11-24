@@ -1,5 +1,5 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
-import { Play, Pause, Smartphone, RefreshCw, Volume2, VolumeX, Zap, Loader2 } from 'lucide-react';
+import { Play, Pause, Smartphone, RefreshCw, Volume2, VolumeX, Zap, Loader2, Maximize, Minimize } from 'lucide-react';
 import { HAPTIC_CUES } from '../constants';
 import { Timeline } from './Timeline';
 
@@ -7,6 +7,9 @@ const VIDEO_URL = "https://closeup-sonicexpert.com/cdn/shop/videos/c/vp/0499295a
 
 export const HapticVideoPlayer: React.FC = () => {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const controlsTimeoutRef = useRef<ReturnType<typeof setTimeout>>(null);
+  
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -14,12 +17,59 @@ export const HapticVideoPlayer: React.FC = () => {
   const [activeCue, setActiveCue] = useState<string | null>(null);
   const [isDeviceSupported, setIsDeviceSupported] = useState(true);
   const [isLoading, setIsLoading] = useState(true);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [showControls, setShowControls] = useState(true);
 
   useEffect(() => {
     if (typeof navigator !== 'undefined' && !navigator.vibrate) {
       setIsDeviceSupported(false);
     }
   }, []);
+
+  // Handle Fullscreen changes
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, []);
+
+  // Auto-hide controls logic
+  const resetControlsTimeout = useCallback(() => {
+    setShowControls(true);
+    if (controlsTimeoutRef.current) {
+      clearTimeout(controlsTimeoutRef.current);
+    }
+    if (isPlaying) {
+      controlsTimeoutRef.current = setTimeout(() => {
+        setShowControls(false);
+      }, 1000);
+    }
+  }, [isPlaying]);
+
+  useEffect(() => {
+    resetControlsTimeout();
+    return () => {
+      if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
+    };
+  }, [isPlaying, resetControlsTimeout]);
+
+  const toggleFullscreen = async () => {
+    if (!containerRef.current) return;
+    
+    if (!document.fullscreenElement) {
+      try {
+        await containerRef.current.requestFullscreen();
+      } catch (err) {
+        console.error("Error attempting to enable fullscreen:", err);
+      }
+    } else {
+      if (document.exitFullscreen) {
+        await document.exitFullscreen();
+      }
+    }
+  };
 
   const syncLoopRef = useRef<number>();
 
@@ -35,8 +85,14 @@ export const HapticVideoPlayer: React.FC = () => {
       if (activeCue !== currentCue.id) {
         setActiveCue(currentCue.id);
         if (navigator.vibrate) {
-          const remainingDuration = (currentCue.endTime - t) * 1000;
-          navigator.vibrate(Math.max(0, remainingDuration));
+          if (currentCue.vibrationPattern) {
+            // Use custom pattern if defined
+            navigator.vibrate(currentCue.vibrationPattern);
+          } else {
+            // Default to continuous vibration for the remainder of the cue
+            const remainingDuration = (currentCue.endTime - t) * 1000;
+            navigator.vibrate(Math.max(0, remainingDuration));
+          }
         }
       }
     } else {
@@ -82,6 +138,7 @@ export const HapticVideoPlayer: React.FC = () => {
     }
     if (navigator.vibrate) navigator.vibrate(0);
     setActiveCue(null);
+    resetControlsTimeout();
   };
 
   const toggleMute = () => {
@@ -107,7 +164,13 @@ export const HapticVideoPlayer: React.FC = () => {
 
   return (
     <div className="flex flex-col gap-6 w-full max-w-3xl mx-auto">
-      <div className={`relative aspect-video bg-zinc-900 rounded-2xl overflow-hidden shadow-2xl border border-zinc-800 transition-transform duration-100 ${activeCue ? 'translate-x-[1px] translate-y-[1px] shadow-cyan-500/20 ring-1 ring-cyan-500/30' : ''}`}>
+      <div 
+        ref={containerRef}
+        className={`relative ${isFullscreen ? 'w-full h-full fixed inset-0 z-50 bg-black' : 'aspect-video rounded-2xl shadow-2xl border border-zinc-800'} bg-zinc-900 overflow-hidden transition-all duration-300 group ${activeCue && !isFullscreen ? 'shadow-cyan-500/20 ring-1 ring-cyan-500/30' : ''}`}
+        onMouseMove={resetControlsTimeout}
+        onTouchStart={resetControlsTimeout}
+        onClick={resetControlsTimeout}
+      >
         {activeCue && (
           <div className="absolute inset-0 pointer-events-none z-20 animate-vibrate-overlay opacity-30 bg-cyan-500 mix-blend-overlay"></div>
         )}
@@ -115,10 +178,13 @@ export const HapticVideoPlayer: React.FC = () => {
         <video
           ref={videoRef}
           src={VIDEO_URL}
-          className="w-full h-full object-cover"
+          className={`w-full h-full ${isFullscreen ? 'object-contain' : 'object-cover'}`}
           playsInline
           crossOrigin="anonymous"
-          onEnded={() => setIsPlaying(false)}
+          onEnded={() => {
+            setIsPlaying(false);
+            setShowControls(true);
+          }}
           onLoadedMetadata={handleLoadedMetadata}
           onWaiting={() => setIsLoading(true)}
           onCanPlay={() => setIsLoading(false)}
@@ -130,28 +196,33 @@ export const HapticVideoPlayer: React.FC = () => {
           </div>
         )}
 
-        <div className="absolute bottom-0 left-0 right-0 p-4 md:p-6 bg-gradient-to-t from-black/90 via-black/60 to-transparent z-30">
+        <div className={`absolute bottom-0 left-0 right-0 p-4 md:p-6 bg-gradient-to-t from-black/90 via-black/60 to-transparent z-30 transition-opacity duration-500 ${showControls ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
             <div className="flex items-center justify-between mb-4">
                 <button 
-                    onClick={togglePlay}
+                    onClick={(e) => { e.stopPropagation(); togglePlay(); }}
                     className="w-12 h-12 md:w-14 md:h-14 flex items-center justify-center bg-white text-black rounded-full hover:scale-105 transition active:scale-95 shadow-lg shadow-white/20"
                 >
                     {isPlaying ? <Pause size={24} fill="currentColor" /> : <Play size={24} fill="currentColor" className="ml-1" />}
                 </button>
 
                 <div className="flex gap-3">
-                    <button onClick={toggleMute} className="p-3 bg-zinc-800/80 backdrop-blur-sm rounded-full text-white hover:bg-zinc-700 transition">
+                    <button onClick={(e) => { e.stopPropagation(); toggleMute(); }} className="p-3 bg-zinc-800/80 backdrop-blur-sm rounded-full text-white hover:bg-zinc-700 transition">
                         {isMuted ? <VolumeX size={20} /> : <Volume2 size={20} />}
                     </button>
-                    <button onClick={resetPlayer} className="p-3 bg-zinc-800/80 backdrop-blur-sm rounded-full text-white hover:bg-zinc-700 transition">
+                    <button onClick={(e) => { e.stopPropagation(); resetPlayer(); }} className="p-3 bg-zinc-800/80 backdrop-blur-sm rounded-full text-white hover:bg-zinc-700 transition">
                         <RefreshCw size={20} />
+                    </button>
+                    <button onClick={(e) => { e.stopPropagation(); toggleFullscreen(); }} className="p-3 bg-zinc-800/80 backdrop-blur-sm rounded-full text-white hover:bg-zinc-700 transition">
+                        {isFullscreen ? <Minimize size={20} /> : <Maximize size={20} />}
                     </button>
                 </div>
             </div>
-            <Timeline currentTime={currentTime} duration={duration} onSeek={handleSeek} />
+            <div onClick={(e) => e.stopPropagation()}>
+               <Timeline currentTime={currentTime} duration={duration} onSeek={handleSeek} />
+            </div>
         </div>
         
-        <div className="absolute top-4 right-4 z-30">
+        <div className={`absolute top-4 right-4 z-30 transition-opacity duration-500 ${showControls ? 'opacity-100' : 'opacity-0'}`}>
              <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full backdrop-blur-md border transition-all duration-300 ${
                  activeCue 
                  ? 'bg-cyan-500/90 border-cyan-400 text-white shadow-[0_0_20px_rgba(6,182,212,0.5)]' 
