@@ -1,0 +1,5 @@
+{
+  "name": "Sonic Haptic Player",
+  "description": "A video player synchronized with haptic feedback to simulate an ultrasonic toothbrush experience.",
+  "requestFramePermissions": []
+}

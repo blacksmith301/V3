@@ -1,0 +1,212 @@
+import React, { useRef, useState, useEffect, useCallback } from 'react';
+import { Play, Pause, Smartphone, RefreshCw, Volume2, VolumeX, Zap, Loader2 } from 'lucide-react';
+import { HAPTIC_CUES } from '../constants';
+import { Timeline } from './Timeline';
+
+const VIDEO_URL = "https://closeup-sonicexpert.com/cdn/shop/videos/c/vp/0499295a775148d0a7d38998241f1758/0499295a775148d0a7d38998241f1758.HD-720p-2.1Mbps-27295103.mp4?v=0";
+
+export const HapticVideoPlayer: React.FC = () => {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [isMuted, setIsMuted] = useState(false);
+  const [activeCue, setActiveCue] = useState<string | null>(null);
+  const [isDeviceSupported, setIsDeviceSupported] = useState(true);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    if (typeof navigator !== 'undefined' && !navigator.vibrate) {
+      setIsDeviceSupported(false);
+    }
+  }, []);
+
+  const syncLoopRef = useRef<number>();
+
+  const handleSync = useCallback(() => {
+    if (!videoRef.current) return;
+
+    const t = videoRef.current.currentTime;
+    setCurrentTime(t);
+
+    const currentCue = HAPTIC_CUES.find(cue => t >= cue.startTime && t < cue.endTime);
+
+    if (currentCue) {
+      if (activeCue !== currentCue.id) {
+        setActiveCue(currentCue.id);
+        if (navigator.vibrate) {
+          const remainingDuration = (currentCue.endTime - t) * 1000;
+          navigator.vibrate(Math.max(0, remainingDuration));
+        }
+      }
+    } else {
+      if (activeCue) {
+        setActiveCue(null);
+        if (navigator.vibrate) navigator.vibrate(0);
+      }
+    }
+
+    if (isPlaying && t < duration) {
+      syncLoopRef.current = requestAnimationFrame(handleSync);
+    }
+  }, [activeCue, isPlaying, duration]);
+
+  useEffect(() => {
+    if (isPlaying) {
+      syncLoopRef.current = requestAnimationFrame(handleSync);
+    } else {
+      if (syncLoopRef.current) cancelAnimationFrame(syncLoopRef.current);
+      if (navigator.vibrate) navigator.vibrate(0);
+      setActiveCue(null);
+    }
+    return () => {
+      if (syncLoopRef.current) cancelAnimationFrame(syncLoopRef.current);
+    };
+  }, [isPlaying, handleSync]);
+
+  const togglePlay = () => {
+    if (videoRef.current) {
+      if (isPlaying) {
+        videoRef.current.pause();
+      } else {
+        videoRef.current.play();
+      }
+      setIsPlaying(!isPlaying);
+    }
+  };
+
+  const handleSeek = (time: number) => {
+    if (videoRef.current) {
+      videoRef.current.currentTime = time;
+      setCurrentTime(time);
+    }
+    if (navigator.vibrate) navigator.vibrate(0);
+    setActiveCue(null);
+  };
+
+  const toggleMute = () => {
+    if (videoRef.current) {
+      videoRef.current.muted = !isMuted;
+      setIsMuted(!isMuted);
+    }
+  };
+
+  const resetPlayer = () => {
+    if (videoRef.current) {
+      videoRef.current.currentTime = 0;
+      if (!isPlaying) setCurrentTime(0);
+    }
+  };
+
+  const handleLoadedMetadata = (e: React.SyntheticEvent<HTMLVideoElement>) => {
+    setDuration(e.currentTarget.duration);
+    setIsLoading(false);
+  };
+
+  const currentActiveCueData = HAPTIC_CUES.find(c => c.id === activeCue);
+
+  return (
+    <div className="flex flex-col gap-6 w-full max-w-3xl mx-auto">
+      <div className={`relative aspect-video bg-zinc-900 rounded-2xl overflow-hidden shadow-2xl border border-zinc-800 transition-transform duration-100 ${activeCue ? 'translate-x-[1px] translate-y-[1px] shadow-cyan-500/20 ring-1 ring-cyan-500/30' : ''}`}>
+        {activeCue && (
+          <div className="absolute inset-0 pointer-events-none z-20 animate-vibrate-overlay opacity-30 bg-cyan-500 mix-blend-overlay"></div>
+        )}
+        
+        <video
+          ref={videoRef}
+          src={VIDEO_URL}
+          className="w-full h-full object-cover"
+          playsInline
+          crossOrigin="anonymous"
+          onEnded={() => setIsPlaying(false)}
+          onLoadedMetadata={handleLoadedMetadata}
+          onWaiting={() => setIsLoading(true)}
+          onCanPlay={() => setIsLoading(false)}
+        />
+
+        {isLoading && (
+          <div className="absolute inset-0 flex items-center justify-center bg-zinc-950/50 z-10">
+            <Loader2 className="w-10 h-10 text-cyan-500 animate-spin" />
+          </div>
+        )}
+
+        <div className="absolute bottom-0 left-0 right-0 p-4 md:p-6 bg-gradient-to-t from-black/90 via-black/60 to-transparent z-30">
+            <div className="flex items-center justify-between mb-4">
+                <button 
+                    onClick={togglePlay}
+                    className="w-12 h-12 md:w-14 md:h-14 flex items-center justify-center bg-white text-black rounded-full hover:scale-105 transition active:scale-95 shadow-lg shadow-white/20"
+                >
+                    {isPlaying ? <Pause size={24} fill="currentColor" /> : <Play size={24} fill="currentColor" className="ml-1" />}
+                </button>
+
+                <div className="flex gap-3">
+                    <button onClick={toggleMute} className="p-3 bg-zinc-800/80 backdrop-blur-sm rounded-full text-white hover:bg-zinc-700 transition">
+                        {isMuted ? <VolumeX size={20} /> : <Volume2 size={20} />}
+                    </button>
+                    <button onClick={resetPlayer} className="p-3 bg-zinc-800/80 backdrop-blur-sm rounded-full text-white hover:bg-zinc-700 transition">
+                        <RefreshCw size={20} />
+                    </button>
+                </div>
+            </div>
+            <Timeline currentTime={currentTime} duration={duration} onSeek={handleSeek} />
+        </div>
+        
+        <div className="absolute top-4 right-4 z-30">
+             <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full backdrop-blur-md border transition-all duration-300 ${
+                 activeCue 
+                 ? 'bg-cyan-500/90 border-cyan-400 text-white shadow-[0_0_20px_rgba(6,182,212,0.5)]' 
+                 : 'bg-black/40 border-white/10 text-zinc-400'
+             }`}>
+                <Smartphone size={14} className={activeCue ? 'animate-pulse' : ''} />
+                <span className="text-xs font-bold tracking-wide">
+                    {activeCue ? 'VIBRATING' : 'READY'}
+                </span>
+             </div>
+        </div>
+      </div>
+
+      <div className="bg-zinc-900/50 rounded-xl p-4 border border-zinc-800">
+        <div className="flex items-start justify-between gap-4">
+            <div>
+                <h3 className="text-white font-semibold mb-1">Haptic Sync Status</h3>
+                <p className="text-zinc-400 text-sm min-h-[20px]">
+                    {currentActiveCueData ? (
+                        <span className="text-cyan-400 font-medium animate-pulse flex items-center gap-2">
+                          <Zap size={14} fill="currentColor" />
+                          {currentActiveCueData.label}
+                        </span>
+                    ) : (
+                        "Waiting for haptic cues..."
+                    )}
+                </p>
+            </div>
+             {!isDeviceSupported && (
+                <div className="shrink-0 px-2 py-1 bg-zinc-800 border border-zinc-700 text-zinc-400 text-[10px] rounded uppercase font-bold">
+                    Desktop Mode
+                </div>
+            )}
+        </div>
+      </div>
+
+      {!isDeviceSupported && (
+          <p className="text-xs text-center text-zinc-600 px-4">
+            Note: Physical vibration requires a mobile device (Android recommended).
+          </p>
+      )}
+      
+      <style>{`
+        @keyframes vibrate-overlay {
+          0% { transform: translate(0); }
+          20% { transform: translate(-2px, 2px); }
+          40% { transform: translate(-2px, -2px); }
+          60% { transform: translate(2px, 2px); }
+          80% { transform: translate(2px, -2px); }
+          100% { transform: translate(0); }
+        }
+        .animate-vibrate-overlay {
+          animation: vibrate-overlay 0.05s infinite;
+        }
+      `}</style>
+    </div>
+  );
+};
